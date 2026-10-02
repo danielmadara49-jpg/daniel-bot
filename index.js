@@ -378,8 +378,20 @@ async function start() {
   const sock = makeWASocket({ version, auth: state, logger: pino({ level: 'silent' }) });
 
   sock.ev.on('creds.update', saveCreds);
+
+  // Connexion par code (alternative au QR) : définir PAIRING_NUMBER, ex. 242064734055
+  if (process.env.PAIRING_NUMBER && !sock.authState.creds.registered) {
+    setTimeout(async () => {
+      try {
+        const code = await sock.requestPairingCode(process.env.PAIRING_NUMBER.replace(/\D/g, ''));
+        console.log('=================================');
+        console.log('CODE DE CONNEXION WHATSAPP :', code);
+        console.log('=================================');
+      } catch (e) { console.error('Erreur code :', e.message); }
+    }, 4000);
+  }
   sock.ev.on('connection.update', ({ connection, lastDisconnect, qr }) => {
-    if (qr) qrcode.generate(qr, { small: true });
+    if (qr && !process.env.PAIRING_NUMBER) qrcode.generate(qr, { small: true });
     if (connection === 'open') console.log('✅ Connecté :', num(sock.user.id));
     if (connection === 'close') {
       const code = lastDisconnect?.error?.output?.statusCode;

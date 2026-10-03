@@ -6,4 +6,6 @@ RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o 
 COPY --from=denoland/deno:bin /deno /usr/local/bin/deno
 WORKDIR /app
 COPY package*.json ./
-RUN n
+RUN npm install --omit=dev
+COPY . .
+CMD ["node", "index.js"]

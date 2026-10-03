@@ -227,7 +227,7 @@ cmd('setwarnlimit', { cat: 'Group', group: true, admin: true }, (c) => {
 const { execFile } = require('child_process');
 fs.mkdirSync('./tmp', { recursive: true });
 const ytdlp = (args) => new Promise((res, rej) =>
-  execFile('yt-dlp', [...(fs.existsSync('./cookies.txt') ? ['--cookies', './cookies.txt'] : []), ...args],
+  execFile('yt-dlp', ['--js-runtimes', 'node', ...(fs.existsSync('./cookies.txt') ? ['--cookies', './cookies.txt'] : []), ...args],
     { maxBuffer: 50 * 1024 * 1024 }, (e, so, se) => (e ? rej(new Error((se || e.message).slice(-300))) : res(so))));
 const ytTarget = (q) => (/^https?:\/\//.test(q) ? q : `ytsearch1:${q}`);
 
@@ -369,7 +369,7 @@ cmd('pp', { cat: 'Owner', owner: true }, async (c) => {
   const buf = await downloadMediaMessage({ key: { remoteJid: c.jid, id: ci.stanzaId, participant: ci.participant }, message: ci.quotedMessage }, 'buffer', {});
   await c.sock.updateProfilePicture(c.sock.user.id, buf); return c.reply('✅ Photo mise à jour.');
 });
-cmd('restart', { cat: 'System', owner: true }, async (c) => { await c.reply('♻️ Redémarrage...'); process.exit(0); });
+cmd('restart', { cat: 'System', owner: true }, async (c) => { await c.reply('♻️ Redémarrage...'); process.exit(1); });
 
 // ---------- CONNEXION ----------
 async function start() {
@@ -396,7 +396,11 @@ async function start() {
     if (connection === 'close') {
       const code = lastDisconnect?.error?.output?.statusCode;
       if (code !== DisconnectReason.loggedOut) start();
-      else console.log('Déconnecté. Supprime le dossier ./auth et relance.');
+      else {
+        console.log('Déconnecté de WhatsApp : session supprimée, redémarrage pour un nouveau code.');
+        fs.rmSync(DATA + '/auth', { recursive: true, force: true });
+        process.exit(1);
+      }
     }
   });
 

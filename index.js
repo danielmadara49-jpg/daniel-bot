@@ -156,12 +156,6 @@ cmd(['sticker', 's'], { cat: 'Edit', desc: 'Image/vidéo -> sticker (en réponda
   const st = new Sticker(buf, { pack: CFG.packName, author: CFG.authorName, type: 'full', quality: 60 });
   return c.sock.sendMessage(c.jid, { sticker: await st.toBuffer() }, { quoted: c.msg });
 });
-cmd('photo', { cat: 'Edit', desc: 'Sticker -> image (en répondant)' }, async (c) => {
-  const ci = ctxInfo(c.msg);
-  if (!ci?.quotedMessage?.stickerMessage) return c.reply('Réponds à un sticker.');
-  const buf = await downloadMediaMessage({ key: { remoteJid: c.jid, id: ci.stanzaId, participant: ci.participant }, message: ci.quotedMessage }, 'buffer', {});
-  return c.sock.sendMessage(c.jid, { image: buf }, { quoted: c.msg });
-});
 
 // ---------- COMMANDES : GROUPE ----------
 const G = { cat: 'Group', group: true, admin: true, botAdmin: true };
@@ -282,7 +276,6 @@ async function dlSocial(c) {
 cmd(['insta', 'ig'], { cat: 'Download', desc: 'Instagram' }, dlSocial);
 cmd('fb', { cat: 'Download', desc: 'Facebook' }, dlSocial);
 cmd('tiktok', { cat: 'Download', desc: 'TikTok' }, dlSocial);
-cmd('pinterest', { cat: 'Download', desc: 'Pinterest' }, dlSocial);
 cmd('story', { cat: 'Download', desc: 'Story Instagram (lien)' }, dlSocial);
 
 // ---------- COMMANDES : IA ----------
@@ -354,6 +347,72 @@ for (const [name, [id, label]] of Object.entries(SPORTS)) {
     } catch (e) { return c.reply('❌ ' + e.message); }
   });
 }
+
+// ---------- COMMANDES : VOIX, STICKER -> PHOTO, PINTEREST (recherche) ----------
+const ffmpeg = (args) => new Promise((res, rej) =>
+  execFile('ffmpeg', ['-y', '-loglevel', 'error', ...args], (e, so, se) => (e ? rej(new Error((se || e.message).slice(-300))) : res())));
+const tmpFile = (ext) => `./tmp/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+const TTS_LANGS = ['fr', 'en', 'es', 'ar', 'pt', 'de', 'it', 'ru', 'tr', 'ja', 'ko', 'hi', 'sw'];
+
+cmd(['tts', 'voix'], { cat: 'Misc', desc: '.tts [langue] texte -> message vocal' }, async (c) => {
+  const args = [...c.args];
+  let lang = 'fr';
+  if (args.length > 1 && TTS_LANGS.includes(args[0].toLowerCase())) lang = args.shift().toLowerCase();
+  const txt = args.join(' ').trim();
+  if (!txt) return c.reply('Usage : .tts Bonjour tout le monde\n(ou .tts en Hello - 200 caractères max)');
+  if (txt.length > 200) return c.reply('Texte trop long (200 caractères max).');
+  const mp3 = tmpFile('mp3'), ogg = tmpFile('ogg');
+  try {
+    const r = await fetch(`https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=${lang}&q=${encodeURIComponent(txt)}`,
+      { headers: { 'user-agent': 'Mozilla/5.0' } });
+    if (!r.ok) throw new Error('service vocal indisponible (' + r.status + ')');
+    fs.writeFileSync(mp3, Buffer.from(await r.arrayBuffer()));
+    await ffmpeg(['-i', mp3, '-c:a', 'libopus', '-b:a', '32k', '-ar', '48000', ogg]);
+    await c.sock.sendMessage(c.jid, { audio: { url: ogg }, mimetype: 'audio/ogg; codecs=opus', ptt: true }, { quoted: c.msg });
+  } catch (e) {
+    return c.reply('❌ ' + e.message);
+  } finally {
+    fs.unlink(mp3, () => {}); fs.unlink(ogg, () => {});
+  }
+});
+
+cmd(['photo', 'toimg'], { cat: 'Edit', desc: 'Sticker -> photo (en répondant)' }, async (c) => {
+  const ci = ctxInfo(c.msg);
+  const st = ci?.quotedMessage?.stickerMessage;
+  if (!st) return c.reply('Réponds à un sticker avec .photo');
+  if (st.isAnimated) return c.reply('Les stickers animés ne sont pas pris en charge (stickers fixes seulement).');
+  const inp = tmpFile('webp'), out = tmpFile('png');
+  try {
+    const buf = await downloadMediaMessage({ key: { remoteJid: c.jid, id: ci.stanzaId, participant: ci.participant }, message: ci.quotedMessage }, 'buffer', {});
+    fs.writeFileSync(inp, buf);
+    await ffmpeg(['-i', inp, out]);
+    await c.sock.sendMessage(c.jid, { image: { url: out } }, { quoted: c.msg });
+  } catch (e) {
+    return c.reply('❌ ' + e.message);
+  } finally {
+    fs.unlink(inp, () => {}); fs.unlink(out, () => {});
+  }
+});
+
+async function pinSearch(c) {
+  const q = c.args.join(' ').trim();
+  try {
+    const data = JSON.stringify({ options: { query: q, scope: 'pins' }, context: {} });
+    const url = 'https://www.pinterest.com/resource/BaseSearchResource/get/?source_url='
+      + encodeURIComponent('/search/pins/?q=' + q) + '&data=' + encodeURIComponent(data);
+    const r = await fetch(url, { headers: { 'user-agent': 'Mozilla/5.0', 'x-requested-with': 'XMLHttpRequest', accept: 'application/json' } });
+    const j = await r.json();
+    const pins = (j.resource_response?.data?.results || []).map((p) => p.images?.orig?.url).filter(Boolean);
+    if (!pins.length) return c.reply('Aucune image trouvée (Pinterest bloque parfois les recherches depuis un serveur).');
+    for (const u of pins.slice(0, 4)) await c.sock.sendMessage(c.jid, { image: { url: u } }, { quoted: c.msg });
+  } catch (e) {
+    return c.reply('❌ ' + e.message);
+  }
+}
+cmd('pinterest', { cat: 'Download', desc: '.pinterest <mots> ou lien' }, (c) => {
+  if (!c.args.length) return c.reply('Usage : .pinterest paysage naruto  (ou un lien Pinterest)');
+  return /^https?:\/\//.test(c.args[0]) ? dlSocial(c) : pinSearch(c);
+});
 
 // ---------- COMMANDES : OWNER ----------
 cmd('block', { cat: 'Owner', owner: true }, async (c) => { const t = target(c.msg, c.args) || (!c.isGroup && c.jid); if (t) await c.sock.updateBlockStatus(t, 'block'); });

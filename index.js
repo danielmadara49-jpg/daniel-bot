@@ -227,7 +227,7 @@ cmd('setwarnlimit', { cat: 'Group', group: true, admin: true }, (c) => {
 const { execFile } = require('child_process');
 fs.mkdirSync('./tmp', { recursive: true });
 const ytdlp = (args) => new Promise((res, rej) =>
-  execFile('yt-dlp', ['--js-runtimes', 'node', '--remote-components', 'ejs:github', ...(fs.existsSync('./cookies.txt') ? ['--cookies', './cookies.txt'] : []), ...args],
+  execFile('yt-dlp', ['--js-runtimes', 'deno', '--js-runtimes', 'node', '--remote-components', 'ejs:github', ...(fs.existsSync('./cookies.txt') ? ['--cookies', './cookies.txt'] : []), ...args],
     { maxBuffer: 50 * 1024 * 1024 }, (e, so, se) => (e ? rej(new Error((se || e.message).slice(-700))) : res(so))));
 const ytTarget = (q) => (/^https?:\/\//.test(q) ? q : `ytsearch1:${q}`);
 
